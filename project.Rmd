@@ -21,34 +21,280 @@ knitr::opts_chunk$set(echo = TRUE)
 # Introduction
 
 ## The motivation
-
+Annually many neonatal in the world dead because of different kind of reasons in this research we wanted to know what is the rate of neonatal death in Finland and Colombia countries in 2020 for different cities and states.
 
 
 
 
 ## The Problem
-
-
+The problem was finding the neonatal probability of each Colombia state. 
+because we treated number of total births as a number of cases and number of deaths as a successes. So we wanted to compare the death rate for different cities and satates.
 
 
 ## The main modeling idea 
-
+The main modeling idea was separate model.
 
 
 
 ##  Some illustrative figure
 
+```{r}
+# Read Excel file and convert it to DataFrame
+library("readxl")
+library("rstan")
 
+path <- file.path(getwd(),"Bayesian","Project", "NeonatalDeathColombia.xlsx" )
+exceldata = read_excel("NeonatalDeathColombia.xlsx")                                                                            
+dfData= data.frame(exceldata)
+print(head(dfData))
+deaths = dfData$Late.perinatal.and.neonatal.mortality.2020
+births = dfData$Late.perinatal.and.neonatal.mortality.2020 + dfData$Live.births.to.2020
+plot(deaths ~ births, data = dfData)
+lm1 <- lm(deaths ~ births, data = dfData)
+summary(lm1)
+abline(lm1, col = 2, lty = 4, lw = 3)
+path <- file.path(getwd(),"Bayesian","Project", "a.xlsx" )
+exceldata = read_excel("a.xlsx")                                                                            
+dfA= data.frame(exceldata)
+
+path <- file.path(getwd(),"Bayesian","Project", "b.xlsx" )
+exceldata = read_excel("b.xlsx")                                                                            
+dfB= data.frame(exceldata)
+```
 
 # Description of the data and the analysis problem. Provide information where the data was obtained, and if it has been previously used in some online case study and how your analysis differs from the existing analyses.
 
+We found data from Colombia government data website about neonatal mortality. https://www.ins.gov.co/Paginas/mapa-del-sitio.aspx. But we didn't have data in one excel file we created data and fill the birth and death information for each year finding them separatly. We didn't find any online analysis same as this before, so we analyzed this data from our point of view. We had different columns as number of live births and number of dead birth we added these two columns to find the number of total births.  
+
 
 # Description of at least two models, for example:non hierarchical and hierarchical
+
+We used a hierarchical and separate models for this data. We calculated the separate mean and sd for previous years. We initially used beta-binomial separate model and then improve that with beta-binomial hierarchical model.
 
 
 # Informative or weakly informative priors, and justification of their choices.
 
 # Stan, rstanarm or brms code.
+
+```{r}
+library(rstan)
+library(bayesplot)
+stan_data <- list(
+  N = 37,
+  L = 1,
+  y = deaths,
+  n = births,
+  aMean = dfA$Mean,
+  aStd = dfA$Std,
+  bMean = dfB$Mean,
+  bStd = dfB$Std
+    
+)
+```
+
+```{r}
+write("// Stan Separate model
+data {
+  int<lower=0> N; // Number of states
+  real L;
+  int<lower=0> y[N]; //Number of neonatal deaths
+  int<lower=0> n[N]; //Number of births
+  real aMean[N]; //Minimun a value
+  real aStd[N]; //Maximum a value
+  real bMean[N]; //Minimun b Value
+  real bStd[N]; //Maximum b value
+}
+
+// The parameters accepted by the model
+parameters {
+  vector<lower=0, upper=1>[N] p;
+  vector<lower=L>[N] a;
+  vector<lower=L>[N] b;
+  
+}
+
+// The model to be estimated. We model the output
+// 'y' to be normally distributed with mean 'mu'
+// and standard deviation 'sigma'.
+model {
+  //Priors  
+    for (i in 1:N) {
+      a[i] ~ normal(aMean[i], aStd[i]) T[L,]; //Number of successes parameter
+      b[i] ~ normal(bMean[i], bStd[i]) T[L,]; //Number of no Success
+    }
+    
+    for (j in 1:N) {
+      p[j] ~ beta(a[j], b[j]);
+    }
+      
+    //Likelihood 
+    for (k in 1:N){
+      y[k] ~ binomial(n[k], p[k]);
+    }
+
+}
+
+generated quantities {
+    //Prediction capital city
+    real ypred;
+    //Log Likelihood ratios
+    vector[N] log_lik;
+    //Predictive distribution of the capital city
+    ypred = binomial_rng(n[6],p[6]);
+    
+      for(j in 1:N){
+        log_lik[j] = binomial_lpmf(y[j] | n[j], p[j]);
+      }
+      
+}// The posterior predictive distribution",
+
+"separate_model.stan")
+```
+
+
+```{r, include=FALSE}
+stanc("separate_model.stan")
+library(rstanarm)
+sm <- rstan::stan_model(file = "separate_model.stan")
+stan_model1 <- "separate_model.stan"
+
+separate_model <- rstan::sampling(sm, data = stan_data)
+monitor(separate_model)
+
+separate_extract_log_lik <- extract_log_lik(separate_model, parameter_name = "log_lik", merge_chains = FALSE);
+r_eff <- relative_eff(exp(separate_extract_log_lik), cores = 2) 
+separate_model_loo <- loo(separate_extract_log_lik, r_eff = r_eff, cores = 2)
+print(separate_model_loo)
+hist(separate_model_loo$diagnostics$pareto_k, main="k values for separate model")
+
+
+```
+
+
+```{r}
+write("// Stan Beta-binomial Hierarchical model 
+data {
+  int<lower=0> N; // Number of states
+  real L;
+  int<lower=0> y[N]; //Number of neonatal deaths
+  int<lower=0> n[N]; //Number of births
+  real aMean; //Mean a value
+  real bMean; //Mean b Value
+  real logn;
+
+  
+}
+
+// The parameters accepted by the model
+parameters {
+  vector<lower=0, upper=1>[N] p;
+  real mu;
+  real loge;
+}
+
+transformed parameters{
+  real a;
+  real b;
+  real e;
+  
+  e = exp(loge);
+  a = mu*e;
+  b = (1-mu)*e;
+  
+  
+}
+
+// The model to be estimated. We model the output
+// 'y' to be normally distributed with mean 'mu'
+// and standard deviation 'sigma'.
+model {
+  
+  
+  mu ~ beta(aMean,bMean);
+  loge ~ logistic(logn, 1);
+ 
+  
+  //Prior
+    for (j in 1:N) {
+      p[j] ~ beta(a, b);
+      
+    }
+  
+    
+    //Likelihood 
+    for (k in 1:N){
+      y[k] ~ binomial(n[k], p[k]);
+    }
+
+}
+
+generated quantities {
+    //Prediction capital city
+    real ypred;
+    //Log Likelihood ratios
+    vector[N] log_lik;
+    //Predictive distribution of the capital city
+    ypred = binomial_rng(n[6],p[6]);
+    
+      for(j in 1:N){
+        log_lik[j] = binomial_lpmf(y[j] | n[j], p[j]);
+      }
+      
+    }// The posterior predictive distribution",
+
+"hierachichal_model.stan")
+```
+
+
+```{r, include=FALSE}
+library(rstan)
+library(bayesplot)
+s = 12345
+sm_hierachichal <- rstan::stan_model(file = "hierachichal_model.stan")
+l = log(100)
+stan_data_hierachichal <- list(
+  N = 37,
+  L = 1,
+  y = deaths,
+  n = births,
+  aMean = mean(dfA$Mean),
+  bMean = mean(dfB$Mean),
+  logn = l
+
+)
+stanc("hierachichal_model.stan")
+
+sm <- rstan::stan_model(file = "hierachichal_model.stan")
+stan_model1 <- "hierachichal_model.stan"
+
+hierachichal_model <- rstan::sampling(sm_hierachichal, data = stan_data_hierachichal)
+monitor(hierachichal_model)
+
+hierachichal_extract_log_lik <- extract_log_lik(hierachichal_model, parameter_name = "log_lik", merge_chains = FALSE);
+r_eff <- relative_eff(exp(hierachichal_extract_log_lik), cores = 2) 
+hierachichal_model_loo <- loo(hierachichal_extract_log_lik, r_eff = r_eff, cores = 2)
+print(hierachichal_model_loo)
+hist(hierachichal_model_loo$diagnostics$pareto_k, main="k values for hierachichal model")
+
+posterior <- extract(hierachichal_model)
+
+```
+
+```{r}
+plot(deaths ~ births, data = dfData)
+
+
+
+
+abline(mean(posterior$a), mean(posterior$b), col = 3, lw = 2)
+abline(mean(posterior$a), mean(posterior$b), col = 36, lw = 3)
+```
+
+```{r}
+plot(posterior$alpha, type = "l")
+plot(posterior$beta, type = "l")
+plot(posterior$sigma, type = "l")
+```
 
 # How to the Stan model was run, that is, what options were used. This is also more clear as combination of textual explanation and the actual code line.
 
