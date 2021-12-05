@@ -13,19 +13,15 @@ data {
 
 // The parameters accepted by the model
 parameters {
-  vector<lower=0, upper=1>[N] p;
-  real mu;
-  real loge;
+real<lower=0,upper=1> mu;
+real<lower=0> eta;
 }
 
 transformed parameters{
-  real a;
-  real b;
-  real e;
-  
-  e = exp(loge);
-  a = mu*e;
-  b = (1-mu)*e;
+real<lower=0> alpha;
+real<lower=0> beta;
+alpha = eta * mu;
+beta = eta * (1-mu);
   
   
 }
@@ -34,36 +30,15 @@ transformed parameters{
 // 'y' to be normally distributed with mean 'mu'
 // and standard deviation 'sigma'.
 model {
-  
-  
   mu ~ beta(aMean,bMean);
-  loge ~ logistic(logn, 1);
  
-  
-  //Prior
-    for (j in 1:N) {
-      p[j] ~ beta(a, b);
-      
-    }
-  
-    
-    //Likelihood 
-    for (k in 1:N){
-      y[k] ~ binomial(n[k], p[k]);
-    }
+  eta ~ exponential(logn);
+y ~ beta_binomial(n,alpha,beta);
 
 }
 
 generated quantities {
-    //Prediction capital city
-    real ypred;
-    //Log Likelihood ratios
-    vector[N] log_lik;
-    //Predictive distribution of the capital city
-    ypred = binomial_rng(n[6],p[6]);
-    
-      for(j in 1:N){
-        log_lik[j] = binomial_lpmf(y[j] | n[j], p[j]);
-      }
+real<lower=0,upper=1> log_lik[N];
+for (i in 1:N) log_lik[i] = beta_rng(alpha+y[i], beta+n[i]-y[i]);
       
     }// The posterior predictive distribution
