@@ -1,21 +1,16 @@
-// Stan model for simple linear regression
+// Stan Separate model
 data {
   int<lower=0> N; // Number of states
-  real L;
   int<lower=0> y[N]; //Number of neonatal deaths
   int<lower=0> n[N]; //Number of births
   real aMean[N]; //Minimun a value
-  real aStd[N]; //Maximum a value
   real bMean[N]; //Minimun b Value
-  real bStd[N]; //Maximum b value
+
 }
 
 // The parameters accepted by the model
 parameters {
   vector<lower=0, upper=1>[N] p;
-  vector<lower=L>[N] a;
-  vector<lower=L>[N] b;
-  
 }
 
 // The model to be estimated. We model the output
@@ -23,13 +18,10 @@ parameters {
 // and standard deviation 'sigma'.
 model {
   //Priors  
-    for (i in 1:N) {
-      a[i] ~ normal(aMean[i], aStd[i]) T[L,]; //Number of successes parameter
-      b[i] ~ normal(bMean[i], bStd[i]) T[L,]; //Number of no Success
-    }
+
     
     for (j in 1:N) {
-      p[j] ~ beta(a[j], b[j]);
+     p[j] ~ beta(aMean[j], bMean[j]);
     }
       
     //Likelihood 

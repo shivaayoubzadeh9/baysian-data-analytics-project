@@ -49,7 +49,10 @@ dfData= data.frame(exceldata)
 print(head(dfData))
 deaths = dfData$Late.perinatal.and.neonatal.mortality.2020
 births = dfData$Late.perinatal.and.neonatal.mortality.2020 + dfData$Live.births.to.2020
-plot(deaths ~ births, data = dfData)
+dfData$rate = (deaths/births)*10
+print(dfData$rate)
+dfData$id <- seq.int(nrow(dfData))
+plot(dfData$id ~ dfData$rate)
 lm1 <- lm(deaths ~ births, data = dfData)
 summary(lm1)
 abline(lm1, col = 2, lty = 4, lw = 3)
@@ -81,14 +84,10 @@ library(rstan)
 library(bayesplot)
 stan_data <- list(
   N = 37,
-  L = 1,
   y = deaths,
   n = births,
   aMean = dfA$Mean,
-  aStd = dfA$Std,
-  bMean = dfB$Mean,
-  bStd = dfB$Std
-    
+  bMean = dfB$Mean
 )
 ```
 
@@ -96,21 +95,16 @@ stan_data <- list(
 write("// Stan Separate model
 data {
   int<lower=0> N; // Number of states
-  real L;
   int<lower=0> y[N]; //Number of neonatal deaths
   int<lower=0> n[N]; //Number of births
   real aMean[N]; //Minimun a value
-  real aStd[N]; //Maximum a value
   real bMean[N]; //Minimun b Value
-  real bStd[N]; //Maximum b value
+
 }
 
 // The parameters accepted by the model
 parameters {
   vector<lower=0, upper=1>[N] p;
-  vector<lower=L>[N] a;
-  vector<lower=L>[N] b;
-  
 }
 
 // The model to be estimated. We model the output
@@ -118,13 +112,10 @@ parameters {
 // and standard deviation 'sigma'.
 model {
   //Priors  
-    for (i in 1:N) {
-      a[i] ~ normal(aMean[i], aStd[i]) T[L,]; //Number of successes parameter
-      b[i] ~ normal(bMean[i], bStd[i]) T[L,]; //Number of no Success
-    }
+
     
     for (j in 1:N) {
-      p[j] ~ beta(a[j], b[j]);
+     p[j] ~ beta(aMean[j], bMean[j]);
     }
       
     //Likelihood 
@@ -180,133 +171,109 @@ abline(mean(posterior_separate$a), mean(posterior_separate$b), col = 36, lw = 3)
 ```
 
 ```{r}
-plot(posterior$a, type = "l")
-plot(posterior$b, type = "l")
+plot(posterior_separate$a, type = "l")
+plot(posterior_separate$b, type = "l")
 ```
-
-
 ```{r}
 write("// Stan Beta-binomial Hierarchical model 
 data {
   int<lower=0> N; // Number of states
-  real L;
   int<lower=0> y[N]; //Number of neonatal deaths
-  int<lower=0> n[N]; //Number of births
+  int<lower=0> n[N];
   real aMean; //Mean a value
-  real bMean; //Mean b Value
-  real logn;
-
-  
+  real bMean; //Number of births
 }
 
 // The parameters accepted by the model
 parameters {
-  vector<lower=0, upper=1>[N] p;
-  real mu;
-  real loge;
+ real theta;
 }
 
-transformed parameters{
-  real a;
-  real b;
-  real e;
-  
-  e = exp(loge);
-  a = mu*e;
-  b = (1-mu)*e;
-  
-  
-}
 
 // The model to be estimated. We model the output
 // 'y' to be normally distributed with mean 'mu'
 // and standard deviation 'sigma'.
 model {
-  
-  
-  mu ~ beta(aMean,bMean);
-  loge ~ logistic(logn, 1);
- 
-  
-  //Prior
-    for (j in 1:N) {
-      p[j] ~ beta(a, b);
-      
-    }
-  
-    
-    //Likelihood 
+  theta ~ beta(aMean,bMean);
     for (k in 1:N){
-      y[k] ~ binomial(n[k], p[k]);
+      y[k] ~ binomial(n[k], theta);
     }
-
 }
 
 generated quantities {
-    //Prediction capital city
-    real ypred;
-    //Log Likelihood ratios
-    vector[N] log_lik;
-    //Predictive distribution of the capital city
-    ypred = binomial_rng(n[6],p[6]);
-    
-      for(j in 1:N){
-        log_lik[j] = binomial_lpmf(y[j] | n[j], p[j]);
+vector[N] log_lik;
+  for(i in 1:N){
+        log_lik[i] = binomial_lpmf(y[i]|n[i], theta);
       }
-      
+
     }// The posterior predictive distribution",
 
 "hierachichal_model.stan")
 ```
 
 
+
 ```{r, include=FALSE}
 library(rstan)
 library(bayesplot)
+sm <- rstan::stan_model(file = "hierachichal_model.stan")
 s = 12345
-sm_hierachichal <- rstan::stan_model(file = "hierachichal_model.stan")
-l = log(100)
 stan_data_hierachichal <- list(
-  N = 37,
-  L = 1,
+  N=37,
   y = deaths,
   n = births,
   aMean = mean(dfA$Mean),
-  bMean = mean(dfB$Mean),
-  logn = l
-
+  bMean = mean(dfB$Mean)
 )
-stanc("hierachichal_model.stan")
+hierachichal_fit <- rstan::sampling(sm, data = stan_data_hierachichal, iter = 1000)
 
-sm <- rstan::stan_model(file = "hierachichal_model.stan")
-stan_model1 <- "hierachichal_model.stan"
 
-hierachichal_model <- rstan::sampling(sm_hierachichal, data = stan_data_hierachichal)
-monitor(hierachichal_model)
+monitor(hierachichal_fit)
 
-hierachichal_extract_log_lik <- extract_log_lik(hierachichal_model, parameter_name = "log_lik", merge_chains = FALSE);
+hierachichal_extract_log_lik <- extract_log_lik(hierachichal_fit, parameter_name = "log_lik", merge_chains = FALSE);
 r_eff <- relative_eff(exp(hierachichal_extract_log_lik), cores = 2) 
 hierachichal_model_loo <- loo(hierachichal_extract_log_lik, r_eff = r_eff, cores = 2)
 print(hierachichal_model_loo)
 hist(hierachichal_model_loo$diagnostics$pareto_k, main="k values for hierachichal model")
 
-posterior <- extract(hierachichal_model)
+posterior <- extract(hierachichal_fit)
 
 ```
 
 ```{r}
-plot(deaths ~ births, data = dfData)
 
+plot(dfData$id ~ dfData$rate)
 
-abline(mean(posterior$a), mean(posterior$b), col = 3, lw = 2)
-abline(mean(posterior$a), mean(posterior$b), col = 36, lw = 3)
+plot(posterior$theta, type = "l")
+
 ```
 
 ```{r}
-plot(posterior$a, type = "l")
-plot(posterior$b, type = "l")
-```
+par(mfrow = c(1,3))
 
+plot(density(posterior$a), main = "Alpha")
+abline(v = lm_alpha, col = 4, lty = 2)
+
+plot(density(posterior$b), main = "Beta")
+abline(v = lm_beta, col = 4, lty = 2)
+
+plot(posterior, vars = "loge")
+
+```
+Below plots show convergence in each chain.So we can compare chains with each other.
+
+```{r}
+library("oddsratio")
+plot(posterior$theta, type = "l")
+traceplot(hierachichal_fit)
+oddsratio::plot_gam(model = hierachichal_model, )
+oddsratio(posterior$theta)
+```
+```{r}
+plot(hierachichal_model, show_density = FALSE, ci_level = 0.5, outer_level = 0.95, fill_color = "salmon")
+plot(posterior$theta, type = "l")
+plot(hierachichal_model, pars=c('log_lik'))
+```
 # How to the Stan model was run, that is, what options were used. This is also more clear as combination of textual explanation and the actual code line.
 
 # Convergence diagnostics (Rˆ, ESS, divergences) and what was done if the convergence was not good with the first try.
