@@ -1,44 +1,32 @@
 // Stan Beta-binomial Hierarchical model 
 data {
   int<lower=0> N; // Number of states
-  real L;
   int<lower=0> y[N]; //Number of neonatal deaths
-  int<lower=0> n[N]; //Number of births
+  int<lower=0> n[N];
   real aMean; //Mean a value
-  real bMean; //Mean b Value
-  real logn;
-
-  
+  real bMean; //Number of births
 }
 
 // The parameters accepted by the model
 parameters {
-real<lower=0,upper=1> mu;
-real<lower=0> eta;
+ real theta;
 }
 
-transformed parameters{
-real<lower=0> alpha;
-real<lower=0> beta;
-alpha = eta * mu;
-beta = eta * (1-mu);
-  
-  
-}
 
 // The model to be estimated. We model the output
 // 'y' to be normally distributed with mean 'mu'
 // and standard deviation 'sigma'.
 model {
-  mu ~ beta(aMean,bMean);
- 
-  eta ~ exponential(logn);
-y ~ beta_binomial(n,alpha,beta);
-
+  theta ~ beta(aMean,bMean);
+    for (k in 1:N){
+      y[k] ~ binomial(n[k], theta);
+    }
 }
 
 generated quantities {
-real<lower=0,upper=1> log_lik[N];
-for (i in 1:N) log_lik[i] = beta_rng(alpha+y[i], beta+n[i]-y[i]);
-      
+vector[N] log_lik;
+  for(i in 1:N){
+        log_lik[i] = binomial_lpmf(y[i]|n[i], theta);
+      }
+
     }// The posterior predictive distribution
