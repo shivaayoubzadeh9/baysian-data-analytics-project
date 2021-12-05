@@ -28,7 +28,7 @@ Annually many neonatal in the world dead because of different kind of reasons in
 
 ## The Problem
 The problem was finding the neonatal probability of each Colombia state. 
-because we treated number of total births as a number of cases and number of deaths as a successes. So we wanted to compare the death rate for different cities and satates.
+because we treated number of total births as a number of cases and number of deaths as a successes. So we wanted to compare the death rate for different cities and states.
 
 
 ## The main modeling idea 
@@ -167,7 +167,21 @@ separate_model_loo <- loo(separate_extract_log_lik, r_eff = r_eff, cores = 2)
 print(separate_model_loo)
 hist(separate_model_loo$diagnostics$pareto_k, main="k values for separate model")
 
+```
 
+```{r}
+
+posterior_separate <- extract(separate_model)
+plot(deaths ~ births, data = dfData)
+
+
+abline(mean(posterior_separate$a), mean(posterior_separate$b), col = 3, lw = 2)
+abline(mean(posterior_separate$a), mean(posterior_separate$b), col = 36, lw = 3)
+```
+
+```{r}
+plot(posterior$a, type = "l")
+plot(posterior$b, type = "l")
 ```
 
 
@@ -284,16 +298,13 @@ posterior <- extract(hierachichal_model)
 plot(deaths ~ births, data = dfData)
 
 
-
-
 abline(mean(posterior$a), mean(posterior$b), col = 3, lw = 2)
 abline(mean(posterior$a), mean(posterior$b), col = 36, lw = 3)
 ```
 
 ```{r}
-plot(posterior$alpha, type = "l")
-plot(posterior$beta, type = "l")
-plot(posterior$sigma, type = "l")
+plot(posterior$a, type = "l")
+plot(posterior$b, type = "l")
 ```
 
 # How to the Stan model was run, that is, what options were used. This is also more clear as combination of textual explanation and the actual code line.
